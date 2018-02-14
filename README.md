@@ -1,4 +1,4 @@
-go-udp-testing
+go-udp-testing [![Build Status](https://travis-ci.org/urjitbhatia/go-udp-testing.svg?branch=master)](https://travis-ci.org/urjitbhatia/go-udp-testing)
 ==============
 
 Provides UDP socket test helpers for Go.

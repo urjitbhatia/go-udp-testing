@@ -1,11 +1,10 @@
 go-udp-testing
 ==============
 
-[![Build Status](https://travis-ci.org/stvp/go-udp-testing.png?branch=master)](https://travis-ci.org/stvp/go-udp-testing)
-
 Provides UDP socket test helpers for Go.
+Compatible with Ginkgo testing framework
 
-[Documentation](http://godoc.org/github.com/stvp/go-udp-testing)
+[Documentation](http://godoc.org/github.com/urjitbhatia/go-udp-testing)
 
 Examples
 --------
@@ -14,7 +13,7 @@ Examples
 package main
 
 import (
-  "github.com/stvp/go-udp-testing"
+  "github.com/urjitbhatia/go-udp-testing"
   "testing"
 )
 

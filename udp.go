@@ -3,10 +3,10 @@
 package udp
 
 import (
+	"fmt"
 	"net"
 	"runtime"
 	"strings"
-	"testing"
 	"time"
 )
 
@@ -14,7 +14,31 @@ var (
 	addr     *string
 	listener *net.UDPConn
 	Timeout  time.Duration = time.Millisecond
+	logBuf   []string
 )
+
+// TestingT is an interface wrapper around TestingT
+// Makes this tester play nice with Ginkgo
+type TestingT interface {
+	Errorf(format string, args ...interface{})
+	Error(args ...interface{})
+	Fatal(args ...interface{})
+}
+
+func resetLogBuf() {
+	logBuf = []string{}
+}
+
+func errorF(format string, args ...interface{}) {
+	logBuf = append(logBuf, fmt.Sprintf(format, args))
+}
+
+func emitLog(t TestingT) {
+	if len(logBuf) > 0 {
+		t.Error(strings.Join(logBuf, "\n"))
+		resetLogBuf()
+	}
+}
 
 type fn func()
 
@@ -23,7 +47,7 @@ func SetAddr(a string) {
 	addr = &a
 }
 
-func start(t *testing.T) {
+func start(t TestingT) {
 	resAddr, err := net.ResolveUDPAddr("udp", *addr)
 	if err != nil {
 		t.Fatal(err)
@@ -34,91 +58,98 @@ func start(t *testing.T) {
 	}
 }
 
-func stop(t *testing.T) {
+func stop(t TestingT) {
 	if err := listener.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func getMessage(t *testing.T, body fn) string {
+func getMessage(t TestingT, body fn) string {
 	start(t)
 	defer stop(t)
-
 	body()
 
 	message := make([]byte, 1024*32)
 	var bufLen int
 	for {
 		listener.SetReadDeadline(time.Now().Add(Timeout))
-		n, _, _ := listener.ReadFrom(message[bufLen:])
+		n, _, err := listener.ReadFrom(message[bufLen:])
 		if n == 0 {
+			if err != nil && bufLen == 0 {
+				errorF("Error reading udp data: %v", err)
+			}
 			break
 		} else {
 			bufLen += n
 		}
 	}
-
-	return string(message[0:bufLen])
+	msg := string(message[0:bufLen])
+	return msg
 }
 
-func get(t *testing.T, match string, body fn) (got string, equals bool, contains bool) {
+func get(t TestingT, match string, body fn) (got string, equals bool, contains bool) {
 	got = getMessage(t, body)
 	equals = got == match
 	contains = strings.Contains(got, match)
 	return got, equals, contains
 }
 
-func printLocation(t *testing.T) {
+func printLocation(t TestingT) {
 	_, file, line, _ := runtime.Caller(2)
-	t.Errorf("At: %s:%d", file, line)
+	errorF("At: %s:%d", file, line)
 }
 
 // ShouldReceiveOnly will fire a test error if the given function doesn't send
 // exactly the given string over UDP.
-func ShouldReceiveOnly(t *testing.T, expected string, body fn) {
+func ShouldReceiveOnly(t TestingT, expected string, body fn) {
+	defer emitLog(t)
 	got, equals, _ := get(t, expected, body)
 	if !equals {
 		printLocation(t)
-		t.Errorf("Expected: %#v", expected)
-		t.Errorf("But got: %#v", got)
+		errorF("Expected: %#v", expected)
+		errorF("But got: %#v", got)
 	}
 }
 
 // ShouldNotReceiveOnly will fire a test error if the given function sends
 // exactly the given string over UDP.
-func ShouldNotReceiveOnly(t *testing.T, notExpected string, body fn) {
+func ShouldNotReceiveOnly(t TestingT, notExpected string, body fn) {
+	defer emitLog(t)
 	_, equals, _ := get(t, notExpected, body)
 	if equals {
 		printLocation(t)
-		t.Errorf("Expected not to get: %#v", notExpected)
+		errorF("Expected not to get: %#v", notExpected)
 	}
 }
 
 // ShouldReceive will fire a test error if the given function doesn't send the
 // given string over UDP.
-func ShouldReceive(t *testing.T, expected string, body fn) {
+func ShouldReceive(t TestingT, expected string, body fn) {
+	defer emitLog(t)
 	got, _, contains := get(t, expected, body)
 	if !contains {
 		printLocation(t)
-		t.Errorf("Expected to find: %#v", expected)
-		t.Errorf("But got: %#v", got)
+		errorF("Expected: %#v", expected)
+		errorF("But got: %#v", got)
 	}
 }
 
 // ShouldNotReceive will fire a test error if the given function sends the
 // given string over UDP.
-func ShouldNotReceive(t *testing.T, expected string, body fn) {
+func ShouldNotReceive(t TestingT, expected string, body fn) {
+	defer emitLog(t)
 	got, _, contains := get(t, expected, body)
 	if contains {
 		printLocation(t)
-		t.Errorf("Expected not to find: %#v", expected)
-		t.Errorf("But got: %#v", got)
+		errorF("Expected not to find: %#v", expected)
+		errorF("But got: %#v", got)
 	}
 }
 
 // ShouldReceiveAll will fire a test error unless all of the given strings are
 // sent over UDP.
-func ShouldReceiveAll(t *testing.T, expected []string, body fn) {
+func ShouldReceiveAll(t TestingT, expected []string, body fn) {
+	defer emitLog(t)
 	got := getMessage(t, body)
 	failed := false
 
@@ -128,18 +159,19 @@ func ShouldReceiveAll(t *testing.T, expected []string, body fn) {
 				printLocation(t)
 				failed = true
 			}
-			t.Errorf("Expected to find: %#v", str)
+			errorF("Expected to find: %#v", str)
 		}
 	}
 
 	if failed {
-		t.Errorf("But got: %#v", got)
+		errorF("But got: %#v", got)
 	}
 }
 
 // ShouldNotReceiveAny will fire a test error if any of the given strings are
 // sent over UDP.
-func ShouldNotReceiveAny(t *testing.T, unexpected []string, body fn) {
+func ShouldNotReceiveAny(t TestingT, unexpected []string, body fn) {
+	defer emitLog(t)
 	got := getMessage(t, body)
 	failed := false
 
@@ -149,16 +181,17 @@ func ShouldNotReceiveAny(t *testing.T, unexpected []string, body fn) {
 				printLocation(t)
 				failed = true
 			}
-			t.Errorf("Expected not to find: %#v", str)
+			errorF("Expected not to find: %#v", str)
 		}
 	}
 
 	if failed {
-		t.Errorf("But got: %#v", got)
+		errorF("But got: %#v", got)
 	}
 }
 
-func ShouldReceiveAllAndNotReceiveAny(t *testing.T, expected []string, unexpected []string, body fn) {
+func ShouldReceiveAllAndNotReceiveAny(t TestingT, expected []string, unexpected []string, body fn) {
+	defer emitLog(t)
 	got := getMessage(t, body)
 	failed := false
 
@@ -168,7 +201,7 @@ func ShouldReceiveAllAndNotReceiveAny(t *testing.T, expected []string, unexpecte
 				printLocation(t)
 				failed = true
 			}
-			t.Errorf("Expected to find: %#v", str)
+			errorF("Expected to find: %#v", str)
 		}
 	}
 	for _, str := range unexpected {
@@ -177,15 +210,15 @@ func ShouldReceiveAllAndNotReceiveAny(t *testing.T, expected []string, unexpecte
 				printLocation(t)
 				failed = true
 			}
-			t.Errorf("Expected not to find: %#v", str)
+			errorF("Expected not to find: %#v", str)
 		}
 	}
 
 	if failed {
-		t.Errorf("but got: %#v", got)
+		errorF("but got: %#v", got)
 	}
 }
 
-func ReceiveString(t *testing.T, body fn) string {
+func ReceiveString(t TestingT, body fn) string {
 	return getMessage(t, body)
 }

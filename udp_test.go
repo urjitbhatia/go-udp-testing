@@ -40,7 +40,7 @@ func TestAll(t *testing.T) {
 
 		got, equals, contains := get(t, shouldGet, func() {
 			udpClient.Write([]byte(sendString))
-		})
+		}, true)
 
 		if got != sendString {
 			t.Errorf("Should've got %#v but got %#v", sendString, got)
@@ -82,6 +82,8 @@ func TestAll(t *testing.T) {
 		udpClient.Write([]byte("biz"))
 		udpClient.Write([]byte("bar"))
 	})
+
+	ShouldReceiveNothing(t, func() {})
 
 	// This should fail, but it also shouldn't stall out
 	// ShouldReceive(t, "foo", func() {})

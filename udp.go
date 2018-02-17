@@ -64,7 +64,7 @@ func stop(t TestingT) {
 	}
 }
 
-func getMessage(t TestingT, body fn) string {
+func getMessage(t TestingT, body fn, expectData bool) string {
 	start(t)
 	defer stop(t)
 	body()
@@ -75,7 +75,7 @@ func getMessage(t TestingT, body fn) string {
 		listener.SetReadDeadline(time.Now().Add(Timeout))
 		n, _, err := listener.ReadFrom(message[bufLen:])
 		if n == 0 {
-			if err != nil && bufLen == 0 {
+			if err != nil && bufLen == 0 && expectData {
 				errorF("Error reading udp data: %v", err)
 			}
 			break
@@ -87,8 +87,8 @@ func getMessage(t TestingT, body fn) string {
 	return msg
 }
 
-func get(t TestingT, match string, body fn) (got string, equals bool, contains bool) {
-	got = getMessage(t, body)
+func get(t TestingT, match string, body fn, expectData bool) (got string, equals bool, contains bool) {
+	got = getMessage(t, body, expectData)
 	equals = got == match
 	contains = strings.Contains(got, match)
 	return got, equals, contains
@@ -103,7 +103,7 @@ func printLocation(t TestingT) {
 // exactly the given string over UDP.
 func ShouldReceiveOnly(t TestingT, expected string, body fn) {
 	defer emitLog(t)
-	got, equals, _ := get(t, expected, body)
+	got, equals, _ := get(t, expected, body, true)
 	if !equals {
 		printLocation(t)
 		errorF("Expected: %#v", expected)
@@ -115,7 +115,7 @@ func ShouldReceiveOnly(t TestingT, expected string, body fn) {
 // exactly the given string over UDP.
 func ShouldNotReceiveOnly(t TestingT, notExpected string, body fn) {
 	defer emitLog(t)
-	_, equals, _ := get(t, notExpected, body)
+	_, equals, _ := get(t, notExpected, body, false)
 	if equals {
 		printLocation(t)
 		errorF("Expected not to get: %#v", notExpected)
@@ -126,7 +126,7 @@ func ShouldNotReceiveOnly(t TestingT, notExpected string, body fn) {
 // given string over UDP.
 func ShouldReceive(t TestingT, expected string, body fn) {
 	defer emitLog(t)
-	got, _, contains := get(t, expected, body)
+	got, _, contains := get(t, expected, body, false)
 	if !contains {
 		printLocation(t)
 		errorF("Expected: %#v", expected)
@@ -138,7 +138,7 @@ func ShouldReceive(t TestingT, expected string, body fn) {
 // given string over UDP.
 func ShouldNotReceive(t TestingT, expected string, body fn) {
 	defer emitLog(t)
-	got, _, contains := get(t, expected, body)
+	got, _, contains := get(t, expected, body, false)
 	if contains {
 		printLocation(t)
 		errorF("Expected not to find: %#v", expected)
@@ -146,11 +146,22 @@ func ShouldNotReceive(t TestingT, expected string, body fn) {
 	}
 }
 
+// ShouldReceiveNothing will fire a test error if the given function sends any
+// data over UDP.
+func ShouldReceiveNothing(t TestingT, body fn) {
+	defer emitLog(t)
+	got, _, _ := get(t, "", body, false)
+	if len(got) > 0 {
+		printLocation(t)
+		errorF("Expected no data, but got: %#v", got)
+	}
+}
+
 // ShouldReceiveAll will fire a test error unless all of the given strings are
 // sent over UDP.
 func ShouldReceiveAll(t TestingT, expected []string, body fn) {
 	defer emitLog(t)
-	got := getMessage(t, body)
+	got := getMessage(t, body, true)
 	failed := false
 
 	for _, str := range expected {
@@ -172,7 +183,7 @@ func ShouldReceiveAll(t TestingT, expected []string, body fn) {
 // sent over UDP.
 func ShouldNotReceiveAny(t TestingT, unexpected []string, body fn) {
 	defer emitLog(t)
-	got := getMessage(t, body)
+	got := getMessage(t, body, false)
 	failed := false
 
 	for _, str := range unexpected {
@@ -192,7 +203,7 @@ func ShouldNotReceiveAny(t TestingT, unexpected []string, body fn) {
 
 func ShouldReceiveAllAndNotReceiveAny(t TestingT, expected []string, unexpected []string, body fn) {
 	defer emitLog(t)
-	got := getMessage(t, body)
+	got := getMessage(t, body, true)
 	failed := false
 
 	for _, str := range expected {
@@ -220,5 +231,5 @@ func ShouldReceiveAllAndNotReceiveAny(t TestingT, expected []string, unexpected 
 }
 
 func ReceiveString(t TestingT, body fn) string {
-	return getMessage(t, body)
+	return getMessage(t, body, true)
 }
